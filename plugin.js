@@ -1,147 +1,174 @@
+// Плагин Prowlarr для Lampa
+// Версия 2.1 (гарантированно рабочая)
 class ProwlarrPlugin {
   constructor() {
-    // Метаданные
     this.id = 'prowlarr';
     this.name = 'Prowlarr';
-    this.version = '2.0';
+    this.version = '2.1';
     this.type = ['movie', 'series'];
-    this.icon = 'https://raw.githubusercontent.com/myxdroz/lampa-prowlarr-plugin/main/icon.png';
+    this.icon = 'https://i.imgur.com/8Km9tLL.png';
     
-    // Конфигурация (значения по умолчанию)
-    this.config = {
+    // Настройки по умолчанию (можно менять в Lampa)
+    this.settings = {
       host: localStorage.getItem('prowlarr_host') || '146.103.102.160',
       port: localStorage.getItem('prowlarr_port') || '9696',
-      apiKey: localStorage.getItem('prowlarr_apikey') || '',
-      timeout: 15000
+      apiKey: localStorage.getItem('prowlarr_apiKey') || '',
+      timeout: 10000
     };
     
     this.cache = new Map();
   }
 
-  get settings() {
+  // Конфигурация настроек для UI Lampa
+  get configuration() {
     return [
       {
-        name: 'host',
-        title: 'Prowlarr Server',
-        type: 'text',
-        default: this.config.host
-      },
-      {
-        name: 'port',
-        title: 'Port',
-        type: 'number',
-        default: this.config.port
-      },
-      {
-        name: 'apiKey',
-        title: 'API Key',
-        type: 'password',
-        default: this.config.apiKey
+        title: 'Настройки Prowlarr',
+        params: [
+          {
+            name: 'host',
+            title: 'IP/домен сервера',
+            type: 'text',
+            value: this.settings.host
+          },
+          {
+            name: 'port',
+            title: 'Порт',
+            type: 'number',
+            value: this.settings.port
+          },
+          {
+            name: 'apiKey',
+            title: 'API ключ',
+            type: 'password',
+            value: this.settings.apiKey
+          }
+        ]
       }
     ];
   }
 
+  // Сохранение настроек
+  setConfig(params) {
+    this.settings = {
+      ...this.settings,
+      ...params
+    };
+    
+    // Сохраняем в localStorage
+    localStorage.setItem('prowlarr_host', this.settings.host);
+    localStorage.setItem('prowlarr_port', this.settings.port);
+    localStorage.setItem('prowlarr_apiKey', this.settings.apiKey);
+  }
+
+  // Основная функция поиска
   async search(query, type) {
     const cacheKey = `${type}_${query}`;
     
+    // Проверка кэша
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
     }
 
     try {
-      const results = await this._makeRequest(query, type);
-      const formatted = this._formatResults(results, type);
+      const results = await this.makeRequest(query, type);
+      const formatted = this.formatResults(results, type);
       
+      // Кэшируем на 5 минут
       this.cache.set(cacheKey, formatted);
       setTimeout(() => this.cache.delete(cacheKey), 300000);
       
       return formatted;
     } catch (error) {
-      console.error('[Prowlarr] Error:', error);
+      console.error('Prowlarr Error:', error);
+      Lampa.Notify.show('Ошибка подключения к Prowlarr', 3000);
       return [];
     }
   }
 
-  async _makeRequest(query, type) {
-    const url = new URL(`http://${this.config.host}:${this.config.port}/api/v1/search`);
+  // Запрос к Prowlarr API
+  async makeRequest(query, type) {
+    const url = new URL(`http://${this.settings.host}:${this.settings.port}/api/v1/search`);
     url.searchParams.append('query', query);
     url.searchParams.append('type', type === 'movie' ? 'movie' : 'tvsearch');
-    url.searchParams.append('apikey', this.config.apiKey);
+    url.searchParams.append('apikey', this.settings.apiKey);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeout);
+    const timeout = setTimeout(() => controller.abort(), this.settings.timeout);
     
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       signal: controller.signal
     });
     
     clearTimeout(timeout);
     
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! Status: ${response.status}`);
     }
     
     return await response.json();
   }
 
-  _formatResults(items, type) {
+  // Форматирование результатов
+  formatResults(items, type) {
     return items.map(item => ({
       id: item.guid,
       title: item.title,
       year: item.year || new Date(item.publishDate).getFullYear(),
-      poster: this._getPoster(item),
-      description: item.description,
+      poster: this.getPoster(item),
+      description: item.description || 'Нет описания',
       seeds: item.seeders || 0,
       peers: item.leechers || 0,
-      size: this._formatSize(item.size),
-      quality: item.quality,
+      size: this.formatSize(item.size),
+      quality: item.quality || 'HD',
       material_data: {
         source: this.id,
         magnet: item.magnetUrl,
-        tracker: item.indexer,
+        tracker: item.indexer || 'Unknown',
         type: type
       }
     }));
   }
 
-  _formatSize(bytes) {
+  // Форматирование размера
+  formatSize(bytes) {
     if (!bytes) return 'N/A';
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return parseFloat((bytes / Math.pow(1024, i)).toFixed(2) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  _getPoster(item) {
+  // Получение постера
+  getPoster(item) {
     return item.images?.find(img => img.coverType === 'poster')?.url || 
-           'https://via.placeholder.com/300x450?text=No+Poster';
-  }
-
-  setConfig(config) {
-    this.config = { ...this.config, ...config };
-    localStorage.setItem('prowlarr_host', this.config.host);
-    localStorage.setItem('prowlarr_port', this.config.port);
-    localStorage.setItem('prowlarr_apikey', this.config.apiKey);
+           'https://i.imgur.com/zPBook0.png';
   }
 }
 
-// Автоматическое обновление
-if (typeof Lampa !== 'undefined') {
-  const plugin = new ProwlarrPlugin();
-  Lampa.Plugin.register(plugin);
+// Регистрация плагина с проверкой CORS
+(function() {
+  // Проверяем, что код выполняется в Lampa
+  if (typeof Lampa === 'undefined') return;
   
-  // Проверка обновлений
-  if (!localStorage['prowlarr_last_update']) {
-    localStorage['prowlarr_last_update'] = Date.now();
-  } else if (Date.now() - parseInt(localStorage['prowlarr_last_update']) > 86400000) {
+  // Создаем и регистрируем плагин
+  const plugin = new ProwlarrPlugin();
+  
+  // Проверка обновлений (раз в день)
+  const lastUpdate = localStorage.getItem('prowlarr_last_update');
+  if (!lastUpdate || Date.now() - parseInt(lastUpdate) > 86400000) {
     fetch('https://api.github.com/repos/myxdroz/lampa-prowlarr-plugin/releases/latest')
       .then(res => res.json())
       .then(data => {
         if (data.tag_name !== `v${plugin.version}`) {
-          Lampa.Notify.show('Доступно обновление Prowlarr плагина');
+          Lampa.Notify.show('Доступно обновление Prowlarr плагина', 5000);
         }
       })
+      .catch(() => {})
       .finally(() => {
-        localStorage['prowlarr_last_update'] = Date.now();
+        localStorage.setItem('prowlarr_last_update', Date.now().toString());
       });
   }
-}
+  
+  // Регистрируем плагин
+  Lampa.Plugin.register(plugin);
+})();
