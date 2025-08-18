@@ -1,5 +1,17 @@
+// Обход CORS для GitHub Pages
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = function(url, options) {
+    if (typeof url === 'string' && url.includes('myxdroz.github.io')) {
+      if (!options) options = {};
+      options.mode = 'cors';
+      options.cache = 'no-cache';
+    }
+    return originalFetch(url, options);
+  };
+})();
+
 // Плагин Prowlarr для Lampa
-// Версия 2.1 (гарантированно рабочая)
 class ProwlarrPlugin {
   constructor() {
     this.id = 'prowlarr';
