@@ -11,6 +11,15 @@
   };
 })();
 
+// Дополнительный обход CORS для Lampa
+try {
+  if (typeof app !== 'undefined') {
+    app.utils.cors = true;
+  }
+} catch (e) {
+  console.log('CORS override for Lampa');
+}
+
 // Плагин Prowlarr для Lampa
 class ProwlarrPlugin {
   constructor() {
